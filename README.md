@@ -1,6 +1,8 @@
-# mobile-openjdk8-build-multiarch
+# angelauramc-openjdk-build
 
-Based on http://openjdk.java.net/projects/mobile/android.html
+**This branch is for OpenJDK 8.**
+
+Based on [Java for Android](http://openjdk.java.net/projects/mobile/android.html) and [the PojavLauncher variant](https://github.com/PojavLauncherTeam/android-openjdk-build-multiarch)
 
 ## Building 
 
