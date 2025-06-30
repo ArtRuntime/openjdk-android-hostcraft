@@ -34,7 +34,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: "jdk8-${{matrix.arch}}"
-        path: jdk8*.tar.xz
+        path: jdk8-android*.tar.xz
 
     - name: Setup tmate session if failed
       if: ${{ failure() }}
@@ -44,7 +44,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: 'jre8-${{matrix.arch}}'
-        path: jre8*.tar.xz
+        path: jre8-android*.tar.xz
     - name: Upload JRE debuginfo build output
       uses: actions/upload-artifact@v4
       with:
@@ -71,13 +71,13 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: "jdk8-ios-aarch64"
-        path: jdk8*.tar.xz
+        path: jdk8-ios*.tar.xz
 
     - name: Upload JRE build output
       uses: actions/upload-artifact@v4
       with:
         name: 'jre8-ios-aarch64'
-        path: jre8*.tar.xz
+        path: jre8-ios*.tar.xz
 
     - name: Upload JRE debuginfo build output
       uses: actions/upload-artifact@v4
