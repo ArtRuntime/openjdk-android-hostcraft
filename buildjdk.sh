@@ -75,6 +75,7 @@ if [[ "$BUILD_IOS" != "1" ]]; then
   fi
 else
   git apply --reject --whitespace=fix ../patches/jdk8u_ios.diff || echo "git apply failed (ios patch set)"
+  git apply --reject --whitespace=fix ../patches/jdk8u_ios_xattr.diff || echo "git apply failed (ios xattr patch set)"
   git apply --reject --whitespace=fix ../patches/jdk8u_ios_fix_clang.diff || echo "git apply failed (ios clang fix patch set)"
 fi
 
