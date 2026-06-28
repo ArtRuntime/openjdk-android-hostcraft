@@ -1,0 +1,210 @@
+name: Build & Release OpenJDK for Android (HostCraft)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Java 8  – built from source (aarch64 only)
+  # ─────────────────────────────────────────────
+  build_java8:
+    name: "Build Java 8 (aarch64)"
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 8 (bootstrap compiler)
+        uses: actions/setup-java@v4
+        with:
+          java-version: 8
+          distribution: zulu
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            autoconf python3 python-is-python3 \
+            unzip zip systemtap-sdt-dev \
+            gcc-multilib g++-multilib \
+            libxtst-dev libasound2-dev libelf-dev \
+            libfontconfig1-dev libx11-dev
+
+      - name: Build Java 8 for Android aarch64
+        env:
+          TARGET: aarch64-linux-android
+          TARGET_JDK: aarch64
+          NDK_PREBUILT_ARCH: /toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/aarch64-linux-android/bin/strip
+        run: bash ci_build_global.sh
+
+      - name: Repackage Java 8 into standard lib/jvm structure
+        run: |
+          JRE=$(ls jre8-android-aarch64*.tar.xz 2>/dev/null | head -1)
+          if [ -z "$JRE" ]; then
+            echo "ERROR: No jre8-android-aarch64*.tar.xz found!"
+            ls *.tar.xz || true
+            exit 1
+          fi
+          mkdir -p temp_jre8
+          tar xf "$JRE" -C temp_jre8
+          mkdir -p repack/lib/jvm/java-8-openjdk
+          cp -a temp_jre8/* repack/lib/jvm/java-8-openjdk/
+          tar -cJf jre-8-aarch64.tar.xz -C repack .
+          echo "Repackaged Java 8 successfully into lib/jvm structure."
+
+      - name: Upload Java 8 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jre-8-aarch64
+          path: jre-8-aarch64.tar.xz
+
+  # ─────────────────────────────────────────────
+  # Java 11, 17, 21, 25 – repackaged from Termux
+  # ─────────────────────────────────────────────
+  repackage_termux_java:
+    name: "Repackage Java ${{ matrix.java }} (aarch64)"
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - java: 11
+            termux_pkg: openjdk-17
+            jvm_dir: java-17-openjdk
+            symlink_as: java-11-openjdk
+          - java: 17
+            termux_pkg: openjdk-17
+            jvm_dir: java-17-openjdk
+            symlink_as: ""
+          - java: 21
+            termux_pkg: openjdk-21
+            jvm_dir: java-21-openjdk
+            symlink_as: ""
+          - java: 25
+            termux_pkg: openjdk-25
+            jvm_dir: java-25-openjdk
+            symlink_as: ""
+
+    steps:
+      - name: Download Termux ${{ matrix.termux_pkg }} .deb (aarch64)
+        run: |
+          REPO="https://packages.termux.dev/apt/termux-main"
+          PACKAGES_URL="$REPO/dists/stable/main/binary-aarch64/Packages"
+          echo "Fetching Packages index..."
+          curl -fsSL "$PACKAGES_URL" -o Packages
+
+          PKG="${{ matrix.termux_pkg }}"
+          FILENAME=$(awk -v pkg="$PKG" '
+            /^Package:/ { inpkg = ($2 == pkg) }
+            /^Filename:/ && inpkg { print $2; exit }
+          ' Packages)
+
+          if [ -z "$FILENAME" ]; then
+            echo "ERROR: Package $PKG not found in Termux repository!"
+            exit 1
+          fi
+
+          echo "Downloading: $REPO/$FILENAME"
+          curl -fsSL "$REPO/$FILENAME" -o package.deb
+          echo "Downloaded $(du -sh package.deb | cut -f1)"
+
+      - name: Extract .deb and repackage as tar.xz
+        run: |
+          mkdir -p extracted
+          cd extracted
+          ar x ../package.deb
+          DATA=$(ls data.tar.* 2>/dev/null | head -1)
+          if [ -z "$DATA" ]; then
+            echo "ERROR: No data.tar.* found in .deb"
+            ls -la
+            exit 1
+          fi
+          echo "Extracting $DATA..."
+          tar xf "$DATA"
+          cd ..
+
+          # Find the jvm directory inside the extracted content
+          JVM_SRC=$(find extracted -type d -name "${{ matrix.jvm_dir }}" 2>/dev/null | head -1)
+          if [ -z "$JVM_SRC" ]; then
+            echo "ERROR: ${{ matrix.jvm_dir }} not found in extracted content"
+            find extracted -type d | head -40
+            exit 1
+          fi
+          echo "Found JVM at: $JVM_SRC"
+
+          # Build output structure matching HostCraft prefix: lib/jvm/java-XX-openjdk/
+          mkdir -p repack/lib/jvm
+          cp -a "$JVM_SRC" "repack/lib/jvm/${{ matrix.jvm_dir }}"
+
+          # Create symlink so this version appears under the requested name
+          if [ -n "${{ matrix.symlink_as }}" ]; then
+            echo "Creating symlink: ${{ matrix.symlink_as }} -> ${{ matrix.jvm_dir }}"
+            ln -sfn "${{ matrix.jvm_dir }}" "repack/lib/jvm/${{ matrix.symlink_as }}"
+          fi
+
+          OUTPUT="jre-${{ matrix.java }}-aarch64.tar.xz"
+          tar -cJf "$OUTPUT" -C repack .
+          echo "Created: $OUTPUT ($(du -sh $OUTPUT | cut -f1))"
+
+      - name: Upload Java ${{ matrix.java }} artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jre-${{ matrix.java }}-aarch64
+          path: jre-${{ matrix.java }}-aarch64.tar.xz
+
+  # ─────────────────────────────────────────────
+  # Publish all versions as a single GitHub Release
+  # ─────────────────────────────────────────────
+  publish_release:
+    name: "Publish GitHub Release"
+    needs: [build_java8, repackage_termux_java]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          name: "HostCraft OpenJDK ${{ github.event.inputs.tag }}"
+          body: |
+            ## HostCraft OpenJDK Builds for Android (aarch64)
+
+            Pre-built Java runtimes for use with the HostCraft Minecraft server app.
+
+            | Version | File | Source |
+            |---------|------|--------|
+            | Java 8  | `jre-8-aarch64.tar.xz`  | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) source |
+            | Java 11 | `jre-11-aarch64.tar.xz` | Repackaged from Termux `openjdk-17` (symlinked as `java-11-openjdk`) |
+            | Java 17 | `jre-17-aarch64.tar.xz` | Repackaged from Termux `openjdk-17` |
+            | Java 21 | `jre-21-aarch64.tar.xz` | Repackaged from Termux `openjdk-21` |
+            | Java 25 | `jre-25-aarch64.tar.xz` | Repackaged from Termux `openjdk-25` |
+
+            ### How archives extract
+            Each `.tar.xz` extracts into `lib/jvm/java-XX-openjdk/` matching the HostCraft prefix path:
+            ```
+            $PREFIX/lib/jvm/java-8-openjdk/bin/java
+            $PREFIX/lib/jvm/java-11-openjdk/bin/java
+            $PREFIX/lib/jvm/java-17-openjdk/bin/java
+            $PREFIX/lib/jvm/java-21-openjdk/bin/java
+            $PREFIX/lib/jvm/java-25-openjdk/bin/java
+            ```
+          draft: false
+          prerelease: false
+          files: release-assets/*.tar.xz
+          token: ${{ secrets.GITHUB_TOKEN }}
