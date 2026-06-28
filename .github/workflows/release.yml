@@ -2,14 +2,9 @@ name: Build & Release OpenJDK for Android (HostCraft)
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag (e.g. v1.0.0)'
-        required: true
-        default: 'v1.0.0'
 
 permissions:
   contents: write
@@ -180,11 +175,16 @@ jobs:
       - name: List release assets
         run: ls -lh release-assets/
 
+      - name: Get current date for version tag
+        id: get_version
+        run: |
+          echo "version=openjdk-$(date '+%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: "HostCraft OpenJDK ${{ github.event.inputs.tag || github.ref_name }}"
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: "HostCraft OpenJDK ${{ steps.get_version.outputs.version }}"
           body: |
             ## HostCraft OpenJDK Builds for Android (aarch64)
 
