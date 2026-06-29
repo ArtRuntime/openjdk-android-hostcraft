@@ -7,8 +7,17 @@ then
   export TARGET_JDK=aarch32
   export TARGET_PHYS=aarch32-linux-androideabi
   export JVM_VARIANTS=client
+  export CFLAGS+=" -march=armv7-a"
 else
   export TARGET_PHYS=$TARGET
+fi
+
+if [[ "$TARGET_JDK" == "x86" || "$TARGET_JDK" == "x86_64" ]]; then
+  export CFLAGS+=" -march=silvermont"
+fi
+
+if [[ "$TARGET_JDK" == "x86" ]]; then
+  export CFLAGS+=" -mstackrealign"
 fi
 
 export FREETYPE_DIR=$PWD/freetype-$BUILD_FREETYPE_VERSION/build_android-$TARGET_SHORT
@@ -39,19 +48,20 @@ if [[ "$BUILD_IOS" != "1" ]]; then
   mkdir -p dummy_libs
   ar cru dummy_libs/libpthread.a
   ar cru dummy_libs/libthread_db.a
+  if [[ "$TARGET_JDK" == "aarch64" || "$TARGET_JDK" == "x86_64" ]]; then
+     export LDFLAGS+=" -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
+  fi
 else
   ln -s -f /opt/X11/include/X11 $ANDROID_INCLUDE/
   platform_args="--with-toolchain-type=clang SDKNAME=iphoneos"
   # --disable-precompiled-headers
   AUTOCONF_x11arg="--with-x=/opt/X11/include/X11 --prefix=/usr/lib"
-  sameflags="-arch arm64 -DHEADLESS=1 -I$PWD/ios-missing-include -Wno-c++11-narrowing -Wno-implicit-function-declaration -Wno-reserved-user-defined-literal -Wno-shift-negative-value"
+  sameflags="-arch arm64 -DHEADLESS=1 -I$PWD/ios-missing-include -Wno-implicit-function-declaration"
   export CFLAGS+=" $sameflags"
   export LDFLAGS+=" -arch arm64"
   export BUILD_SYSROOT_CFLAGS="-isysroot ${themacsysroot}"
 
-  if [[ "$J316SAP" != "1" ]]; then
-    HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid xquartz
-  fi
+  HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid xquartz
 fi
 
 # fix building libjawt
@@ -75,8 +85,6 @@ if [[ "$BUILD_IOS" != "1" ]]; then
   fi
 else
   git apply --reject --whitespace=fix ../patches/jdk8u_ios.diff || echo "git apply failed (ios patch set)"
-  git apply --reject --whitespace=fix ../patches/jdk8u_ios_xattr.diff || echo "git apply failed (ios xattr patch set)"
-  git apply --reject --whitespace=fix ../patches/jdk8u_ios_fix_clang.diff || echo "git apply failed (ios clang fix patch set)"
 fi
 
 #   --with-extra-cxxflags="$CXXFLAGS -Dchar16_t=uint16_t -Dchar32_t=uint32_t" \

@@ -34,8 +34,8 @@ cd jreout
 # Strip in place all .so files thanks to the ndk
 find ./ -name '*.so' -execdir ${NDK}${NDK_PREBUILT_ARCH} {} \;
 
-tar cJf ../jre8-${TARGET_OS}-${TARGET_SHORT}-`date +%Y%m%d`-${JDK_DEBUG_LEVEL}.tar.xz .
+tar cJf ../jre8-${TARGET_SHORT}-`date +%Y%m%d`-${JDK_DEBUG_LEVEL}.tar.xz .
 
 cd ../jdkout
-tar cJf ../jdk8-${TARGET_OS}-${TARGET_SHORT}-`date +%Y%m%d`-${JDK_DEBUG_LEVEL}.tar.xz .
+tar cJf ../jdk8-${TARGET_SHORT}-`date +%Y%m%d`-${JDK_DEBUG_LEVEL}.tar.xz .
 
