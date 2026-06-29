@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   # ─────────────────────────────────────────────
@@ -41,7 +42,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: "jdk8-${{matrix.arch}}"
-          path: jdk8-android*.tar.xz
+          path: jdk8-*.tar.xz
 
       - name: Setup tmate session if failed
         if: ${{ failure() }}
@@ -51,7 +52,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: 'jre8-${{matrix.arch}}'
-          path: jre8-android*.tar.xz
+          path: jre8-*.tar.xz
       - name: Upload JRE debuginfo build output
         uses: actions/upload-artifact@v4
         with:
@@ -112,9 +113,9 @@ jobs:
 
       - name: Repackage Java 8 into standard lib/jvm structure
         run: |
-          JRE=$(ls temp_download/jre8-android-aarch64*.tar.xz 2>/dev/null | head -1)
+          JRE=$(ls temp_download/jre8-arm64*.tar.xz 2>/dev/null | head -1)
           if [ -z "$JRE" ]; then
-            echo "ERROR: No jre8-android-aarch64*.tar.xz found!"
+            echo "ERROR: No jre8-arm64*.tar.xz found!"
             ls temp_download/ || true
             exit 1
           fi
@@ -268,8 +269,8 @@ jobs:
             | Java 25 | `jre-25-aarch64.tar.xz` | Repackaged from Termux `openjdk-25` |
 
             ### Multi-Arch OpenJDK 8 Builds (JDK & JRE)
-            - **JDK 8 Tarballs:** `jdk8-android-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
-            - **JRE 8 Tarballs:** `jre8-android-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
+            - **JDK 8 Tarballs:** `jdk8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
+            - **JRE 8 Tarballs:** `jre8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
             
             ### Pojav Launcher Compatibility JRE (Java 8)
             - **Assets:** `universal.tar.xz`, `bin-arm.tar.xz`, `bin-arm64.tar.xz`, `bin-x86.tar.xz`, `bin-x86_64.tar.xz`
@@ -289,3 +290,12 @@ jobs:
             release-assets/*.tar.xz
             release-assets/version
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete temporary workflow artifacts
+        run: |
+          for id in $(gh api --paginate /repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts --jq '.artifacts[].id'); do
+            echo "Deleting artifact $id"
+            gh api --method DELETE /repos/${{ github.repository }}/actions/artifacts/$id
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
