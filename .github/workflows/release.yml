@@ -69,6 +69,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Install zip
+        run: sudo apt -y install zip
       - name: Get jre8-aarch32
         uses: actions/download-artifact@v4
         with:
@@ -90,12 +92,14 @@ jobs:
           name: jre8-x86_64
           path: pojav
       - name: Repack JRE
-        run: bash "repackjre.sh" $GITHUB_WORKSPACE/pojav $GITHUB_WORKSPACE/pojav/jre8-pojav
+        run: |
+          bash "repackjre.sh" $GITHUB_WORKSPACE/pojav $GITHUB_WORKSPACE/pojav/jre8-pojav
+          zip -j -r $GITHUB_WORKSPACE/jre8-pojav.zip $GITHUB_WORKSPACE/pojav/jre8-pojav/
       - name: Upload Pojav JRE artifact
         uses: actions/upload-artifact@v4
         with:
           name: jre8-pojav
-          path: pojav/jre8-pojav/*
+          path: jre8-pojav.zip
 
   # ─────────────────────────────────────────────
   # Java 8 HostCraft structure (aarch64 repack)
@@ -273,7 +277,7 @@ jobs:
             - **JRE 8 Tarballs:** `jre8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
             
             ### Pojav Launcher Compatibility JRE (Java 8)
-            - **Assets:** `universal.tar.xz`, `bin-arm.tar.xz`, `bin-arm64.tar.xz`, `bin-x86.tar.xz`, `bin-x86_64.tar.xz`
+            - **Asset:** `jre8-pojav.zip` (contains `universal.tar.xz`, `bin-arm.tar.xz`, `bin-arm64.tar.xz`, `bin-x86.tar.xz`, `bin-x86_64.tar.xz`, and `version`)
 
             ### How HostCraft JRE archives extract
             Each HostCraft-specific `.tar.xz` extracts into `lib/jvm/java-XX-openjdk/` matching the HostCraft prefix path:
@@ -288,7 +292,7 @@ jobs:
           prerelease: false
           files: |
             release-assets/*.tar.xz
-            release-assets/version
+            release-assets/*.zip
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete temporary workflow artifacts
