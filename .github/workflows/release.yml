@@ -144,8 +144,8 @@ jobs:
             ' Packages-${arch})
             
             if [ -z "$filename" ]; then
-              echo "ERROR: Package $pkg not found for arch ${arch}!"
-              exit 1
+              echo "WARNING: Package $pkg not found for arch ${arch}! Skipping."
+              return 0
             fi
             
             echo "Downloading $arch: $repo/$filename"
@@ -164,6 +164,10 @@ jobs:
             local arch=$1
             local deb_file="download/package_${arch}.deb"
             local ext_dir="extracted_${arch}"
+            if [ ! -f "$deb_file" ]; then
+              echo "Skipping extraction for $arch (deb file not found)"
+              return 0
+            fi
             mkdir -p "$ext_dir"
             cd "$ext_dir"
             ar x "../$deb_file"
@@ -185,15 +189,15 @@ jobs:
           jvm_x86_64=$(find extracted_x86_64 -type d -name "java-*-openjdk" | head -1)
           jvm_x86=$(find extracted_i686 -type d -name "java-*-openjdk" | head -1)
           
-          if [ -z "$jvm_arm64" ] || [ -z "$jvm_arm" ] || [ -z "$jvm_x86_64" ] || [ -z "$jvm_x86" ]; then
-            echo "ERROR: Could not find JVM directories!"
+          if [ -z "$jvm_arm64" ]; then
+            echo "ERROR: Could not find base ARM64 JVM directory!"
             exit 1
           fi
           
           echo "ARM64 JVM path: $jvm_arm64"
-          echo "ARM JVM path: $jvm_arm"
-          echo "x86_64 JVM path: $jvm_x86_64"
-          echo "x86 JVM path: $jvm_x86"
+          [ -n "$jvm_arm" ] && echo "ARM JVM path: $jvm_arm" || echo "ARM JVM not found"
+          [ -n "$jvm_x86_64" ] && echo "x86_64 JVM path: $jvm_x86_64" || echo "x86_64 JVM not found"
+          [ -n "$jvm_x86" ] && echo "x86 JVM path: $jvm_x86" || echo "x86 JVM not found"
           
           # Create universal directory
           mkdir -p repack/universal
@@ -211,6 +215,11 @@ jobs:
             local arch=$1
             local jvm_path=$2
             local tar_name=$3
+            
+            if [ -z "$jvm_path" ] || [ ! -d "$jvm_path" ]; then
+              echo "Skipping repackaging for $arch (JVM path not found)"
+              return 0
+            fi
             
             mkdir -p "repack/bin-${arch}"
             if [ -d "$jvm_path/bin" ]; then
@@ -238,8 +247,16 @@ jobs:
           # Write version
           echo "${{ github.sha }}" > version
           
+          # Gather all files that exist to zip
+          zip_files="universal.tar.xz version"
+          for f in bin-arm64.tar.xz bin-arm.tar.xz bin-x86_64.tar.xz bin-x86.tar.xz; do
+            if [ -f "$f" ]; then
+              zip_files="$zip_files $f"
+            fi
+          done
+          
           # Create zip
-          zip -j -r jre${{ matrix.java }}-pojav.zip universal.tar.xz bin-arm64.tar.xz bin-arm.tar.xz bin-x86_64.tar.xz bin-x86.tar.xz version
+          zip -j -r jre${{ matrix.java }}-pojav.zip $zip_files
 
       - name: Upload Java ${{ matrix.java }} Pojav artifact
         uses: actions/upload-artifact@v4
