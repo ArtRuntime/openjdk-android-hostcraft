@@ -3,6 +3,7 @@ freetype-*.tar.gz
 freetype-*
 cups-*
 dummy_libs
+jdk-outputs
 freetype-*-x86
 jdk1.8.0_*
 openjdk
