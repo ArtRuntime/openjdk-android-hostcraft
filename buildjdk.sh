@@ -122,9 +122,9 @@ if [[ "$error_code" -ne 0 ]]; then
 fi
 
 cd build/${JVM_PLATFORM}-${TARGET_JDK}-normal-${JVM_VARIANTS}-${JDK_DEBUG_LEVEL}
-make JOBS=4 jre-image || \
+make JOBS=4 images || \
 error_code=$?
 if [[ "$error_code" -ne 0 ]]; then
   echo "Build failure, exited with code $error_code. Trying again."
-  make JOBS=4 jre-image
+  make JOBS=4 images
 fi

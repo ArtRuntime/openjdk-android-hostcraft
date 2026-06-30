@@ -39,10 +39,6 @@ jobs:
       - name: Build with CI build script
         run: bash "ci_build_arch_${{matrix.arch}}.sh"
 
-      - name: Setup tmate session if failed
-        if: ${{ failure() }}
-        uses: mxschmitt/action-tmate@v3
-
       - name: Upload JRE build output
         uses: actions/upload-artifact@v4
         with:
