@@ -113,6 +113,9 @@ jobs:
       matrix:
         java: [ 17, 21, 25 ]
         arch: [ "aarch32", "aarch64", "x86", "x86_64" ]
+        exclude:
+          - java: 25
+            arch: "x86"
 
     steps:
       - name: Download Termux openjdk-${{ matrix.java }} .deb (${{ matrix.arch }})
@@ -264,7 +267,6 @@ jobs:
             | Java 21 | `x86_64` | `jre-21-x86_64.tar.xz` | JRE | Repackaged Termux `openjdk-21` |
             | Java 25 | `aarch64` | `jre-25-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
             | Java 25 | `arm` (aarch32) | `jre-25-arm.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
-            | Java 25 | `x86` | `jre-25-x86.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
             | Java 25 | `x86_64` | `jre-25-x86_64.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
 
             ### Raw Multi-Arch OpenJDK 8 Builds (Extracts directly at root level)
