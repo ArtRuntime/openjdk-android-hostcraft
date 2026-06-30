@@ -105,39 +105,114 @@ jobs:
   # Java 8 HostCraft structure (aarch64 repack)
   # ─────────────────────────────────────────────
   repackage_java8_hostcraft:
-    name: "Repackage Java 8 HostCraft (aarch64)"
+    name: "Repackage Java 8 HostCraft (${{ matrix.type }} - ${{ matrix.arch }})"
     needs: build_openjdk8
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: [ "aarch32", "aarch64", "x86", "x86_64" ]
+        type: [ "jre", "jdk" ]
+      fail-fast: false
     steps:
-      - name: Get compiled jre8-aarch64
+      - name: Get compiled ${{ matrix.type }}8-${{ matrix.arch }}
         uses: actions/download-artifact@v4
         with:
-          name: jre8-aarch64
+          name: "${{ matrix.type }}8-${{ matrix.arch }}"
           path: temp_download
 
       - name: Repackage Java 8 into standard lib/jvm structure
         run: |
-          JRE=$(ls temp_download/jre8-arm64*.tar.xz 2>/dev/null | head -1)
-          if [ -z "$JRE" ]; then
-            echo "ERROR: No jre8-arm64*.tar.xz found!"
+          SRC_TAR=$(ls temp_download/${{ matrix.type }}8-*.tar.xz 2>/dev/null | head -1)
+          if [ -z "$SRC_TAR" ]; then
+            echo "ERROR: No ${{ matrix.type }}8-*.tar.xz found!"
             ls temp_download/ || true
             exit 1
           fi
-          mkdir -p temp_jre8
-          tar xf "$JRE" -C temp_jre8
+          mkdir -p temp_extract
+          tar xf "$SRC_TAR" -C temp_extract
           mkdir -p repack/lib/jvm/java-8-openjdk
-          cp -a temp_jre8/* repack/lib/jvm/java-8-openjdk/
-          tar -cJf jre-8-aarch64.tar.xz -C repack .
-          echo "Repackaged Java 8 successfully into lib/jvm structure."
+          cp -a temp_extract/* repack/lib/jvm/java-8-openjdk/
+          
+          if [ "${{ matrix.arch }}" = "aarch32" ]; then
+            ARCH_NAME="arm"
+          elif [ "${{ matrix.arch }}" = "aarch64" ]; then
+            ARCH_NAME="aarch64"
+          else
+            ARCH_NAME="${{ matrix.arch }}"
+          fi
+          
+          OUTPUT="${{ matrix.type }}-8-${ARCH_NAME}.tar.xz"
+          tar -cJf "$OUTPUT" -C repack .
+          echo "Repackaged ${{ matrix.type }} 8 (${{ matrix.arch }}) successfully into lib/jvm structure as $OUTPUT."
 
-      - name: Upload Java 8 artifact
+      - name: Upload Java 8 ${{ matrix.type }} ${{ matrix.arch }} artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jre-8-aarch64
-          path: jre-8-aarch64.tar.xz
+          name: "${{ matrix.type }}-8-${{ matrix.arch }}"
+          path: "${{ matrix.type }}-8-*.tar.xz"
 
   # ─────────────────────────────────────────────
-  # Java 11, 17, 21, 25 – repackaged from Termux
+  # Java 11 – repackaged from Ubuntu openjdk-11
+  # ─────────────────────────────────────────────
+  repackage_java11_ubuntu:
+    name: "Repackage Java 11 Ubuntu (aarch64)"
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download Ubuntu openjdk-11 packages (arm64)
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          apt-get download openjdk-11-jre-headless:arm64 openjdk-11-jdk-headless:arm64
+
+      - name: Extract and package as tar.xz
+        run: |
+          mkdir -p extracted
+          for deb in *.deb; do
+            echo "Extracting $deb..."
+            dpkg-deb -x "$deb" extracted/
+          done
+
+          # Locate the JVM directory inside the extracted content
+          # Ubuntu installs it at usr/lib/jvm/java-11-openjdk-arm64
+          JVM_SRC=$(find extracted -type d -name "java-11-openjdk-arm64" 2>/dev/null | head -1)
+          if [ -z "$JVM_SRC" ]; then
+            echo "ERROR: java-11-openjdk-arm64 not found in extracted content"
+            find extracted -type d | head -40
+            exit 1
+          fi
+          echo "Found JVM at: $JVM_SRC"
+
+          # Build output structure matching HostCraft prefix: lib/jvm/java-11-openjdk/
+          mkdir -p repack/lib/jvm
+          cp -a "$JVM_SRC" repack/lib/jvm/java-11-openjdk
+
+          # Resolve any external symlinks to make the JVM self-contained
+          find repack/lib/jvm/java-11-openjdk -type l | while read -r symlink; do
+            target=$(readlink "$symlink")
+            if [[ "$target" == /* ]]; then
+              echo "Resolving external symlink: $symlink -> $target"
+              if [ -e "extracted$target" ]; then
+                rm "$symlink"
+                cp -a "extracted$target" "$symlink"
+              elif [ -e "$target" ]; then
+                rm "$symlink"
+                cp -a "$target" "$symlink"
+              fi
+            fi
+          done
+
+          OUTPUT="jre-11-aarch64.tar.xz"
+          tar -cJf "$OUTPUT" -C repack .
+          echo "Created: $OUTPUT ($(du -sh $OUTPUT | cut -f1))"
+
+      - name: Upload Java 11 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jre-11-aarch64
+          path: jre-11-aarch64.tar.xz
+
+  # ─────────────────────────────────────────────
+  # Java 17, 21, 25 – repackaged from Termux
   # ─────────────────────────────────────────────
   repackage_termux_java:
     name: "Repackage Java ${{ matrix.java }} (aarch64)"
@@ -146,10 +221,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - java: 11
-            termux_pkg: openjdk-17
-            jvm_dir: java-17-openjdk
-            symlink_as: java-11-openjdk
           - java: 17
             termux_pkg: openjdk-17
             jvm_dir: java-17-openjdk
@@ -235,7 +306,7 @@ jobs:
   # ─────────────────────────────────────────────
   publish_release:
     name: "Publish GitHub Release"
-    needs: [pojav, repackage_java8_hostcraft, repackage_termux_java]
+    needs: [pojav, repackage_java8_hostcraft, repackage_java11_ubuntu, repackage_termux_java]
     runs-on: ubuntu-24.04
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
@@ -263,16 +334,25 @@ jobs:
             
             Pre-built Java runtimes and JDK/JRE binaries for use with the HostCraft Minecraft server app and PojavLauncher compatibility formats.
 
-            ### HostCraft JREs (aarch64 only, extracts to standard prefix)
-            | Version | File | Source |
-            |---------|------|--------|
-            | Java 8  | `jre-8-aarch64.tar.xz`  | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) source |
-            | Java 11 | `jre-11-aarch64.tar.xz` | Repackaged from Termux `openjdk-17` (symlinked as `java-11-openjdk`) |
-            | Java 17 | `jre-17-aarch64.tar.xz` | Repackaged from Termux `openjdk-17` |
-            | Java 21 | `jre-21-aarch64.tar.xz` | Repackaged from Termux `openjdk-21` |
-            | Java 25 | `jre-25-aarch64.tar.xz` | Repackaged from Termux `openjdk-25` |
+            ### HostCraft JREs / JDKs (extracts to standard prefix)
+            Each HostCraft-specific `.tar.xz` extracts directly under `lib/jvm/java-XX-openjdk/` matching the HostCraft prefix path.
+            
+            | Version | Architecture | File | Type | Source / Base |
+            |---------|--------------|------|------|---------------|
+            | Java 8  | `aarch64` | `jre-8-aarch64.tar.xz` | JRE | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
+            | Java 8  | `arm` (aarch32) | `jre-8-arm.tar.xz` | JRE | Built from [openjdk/aarch32-port-jdk8u](https://github.com/openjdk/aarch32-port-jdk8u) |
+            | Java 8  | `x86` | `jre-8-x86.tar.xz` | JRE | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
+            | Java 8  | `x86_64` | `jre-8-x86_64.tar.xz` | JRE | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
+            | Java 8  | `aarch64` | `jdk-8-aarch64.tar.xz` | JDK | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
+            | Java 8  | `arm` (aarch32) | `jdk-8-arm.tar.xz` | JDK | Built from [openjdk/aarch32-port-jdk8u](https://github.com/openjdk/aarch32-port-jdk8u) |
+            | Java 8  | `x86` | `jdk-8-x86.tar.xz` | JDK | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
+            | Java 8  | `x86_64` | `jdk-8-x86_64.tar.xz` | JDK | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
+            | Java 11 | `aarch64` | `jre-11-aarch64.tar.xz` | JRE | Repackaged from Ubuntu `openjdk-11-jdk-headless` |
+            | Java 17 | `aarch64` | `jre-17-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-17` |
+            | Java 21 | `aarch64` | `jre-21-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-21` |
+            | Java 25 | `aarch64` | `jre-25-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
 
-            ### Multi-Arch OpenJDK 8 Builds (JDK & JRE)
+            ### Raw Multi-Arch OpenJDK 8 Builds (Extracts directly at root level)
             - **JDK 8 Tarballs:** `jdk8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
             - **JRE 8 Tarballs:** `jre8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
             

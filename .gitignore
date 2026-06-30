@@ -9,6 +9,9 @@ openjdk
 android-ndk-r*
 jre.tar.xz
 jreout
+jdk-outputs/
+/jdk-outputs
+jdk-outputs/*
 .DS_Store
 .idea
 ios-missing-include/cups
