@@ -102,10 +102,45 @@ jobs:
           path: jre8-pojav.zip
 
   # ─────────────────────────────────────────────
-  # Java 11, 17, 21, 25 – repackaged from Termux for Pojav
+  # Java 8 HostCraft structure (aarch64 repack)
+  # ─────────────────────────────────────────────
+  repackage_java8_hostcraft:
+    name: "Repackage Java 8 HostCraft (aarch64)"
+    needs: build_openjdk8
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Get compiled jre8-aarch64
+        uses: actions/download-artifact@v4
+        with:
+          name: jre8-aarch64
+          path: temp_download
+
+      - name: Repackage Java 8 into standard lib/jvm structure
+        run: |
+          JRE=$(ls temp_download/jre8-arm64*.tar.xz 2>/dev/null | head -1)
+          if [ -z "$JRE" ]; then
+            echo "ERROR: No jre8-arm64*.tar.xz found!"
+            ls temp_download/ || true
+            exit 1
+          fi
+          mkdir -p temp_jre8
+          tar xf "$JRE" -C temp_jre8
+          mkdir -p repack/lib/jvm/java-8-openjdk
+          cp -a temp_jre8/* repack/lib/jvm/java-8-openjdk/
+          tar -cJf jre-8-aarch64.tar.xz -C repack .
+          echo "Repackaged Java 8 successfully into lib/jvm structure."
+
+      - name: Upload Java 8 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jre-8-aarch64
+          path: jre-8-aarch64.tar.xz
+
+  # ─────────────────────────────────────────────
+  # Java 11, 17, 21, 25 – repackaged from Termux
   # ─────────────────────────────────────────────
   repackage_termux_java:
-    name: "Repackage Java ${{ matrix.java }} for Pojav"
+    name: "Repackage Java ${{ matrix.java }} (aarch64)"
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -113,163 +148,94 @@ jobs:
         include:
           - java: 11
             termux_pkg: openjdk-17
+            jvm_dir: java-17-openjdk
+            symlink_as: java-11-openjdk
           - java: 17
             termux_pkg: openjdk-17
+            jvm_dir: java-17-openjdk
+            symlink_as: ""
           - java: 21
             termux_pkg: openjdk-21
+            jvm_dir: java-21-openjdk
+            symlink_as: ""
           - java: 25
             termux_pkg: openjdk-25
+            jvm_dir: java-25-openjdk
+            symlink_as: ""
 
     steps:
-      - name: Install dependencies
+      - name: Download Termux ${{ matrix.termux_pkg }} .deb (aarch64)
         run: |
-          sudo apt update
-          sudo apt -y install curl jq unzip zip
+          REPO="https://packages.termux.dev/apt/termux-main"
+          PACKAGES_URL="$REPO/dists/stable/main/binary-aarch64/Packages"
+          echo "Fetching Packages index..."
+          curl -fsSL "$PACKAGES_URL" -o Packages
 
-      - name: Download debs for arm64, arm, x86_64, x86
-        run: |
-          download_deb() {
-            local pkg=$1
-            local arch=$2
-            local dest_dir=$3
-            local repo="https://packages.termux.dev/apt/termux-main"
-            local index_url="$repo/dists/stable/main/binary-${arch}/Packages"
-            
-            echo "Fetching Packages index for ${arch}..."
-            curl -fsSL "$index_url" -o Packages-${arch}
-            
-            local filename=$(awk -v pkg="$pkg" '
-              /^Package:/ { inpkg = ($2 == pkg) }
-              /^Filename:/ && inpkg { print $2; exit }
-            ' Packages-${arch})
-            
-            if [ -z "$filename" ]; then
-              echo "WARNING: Package $pkg not found for arch ${arch}! Skipping."
-              return 0
-            fi
-            
-            echo "Downloading $arch: $repo/$filename"
-            mkdir -p "$dest_dir"
-            curl -fsSL "$repo/$filename" -o "$dest_dir/package_${arch}.deb"
-          }
-          
-          download_deb "${{ matrix.termux_pkg }}" "aarch64" "download"
-          download_deb "${{ matrix.termux_pkg }}" "arm" "download"
-          download_deb "${{ matrix.termux_pkg }}" "x86_64" "download"
-          download_deb "${{ matrix.termux_pkg }}" "i686" "download"
+          PKG="${{ matrix.termux_pkg }}"
+          FILENAME=$(awk -v pkg="$PKG" '
+            /^Package:/ { inpkg = ($2 == pkg) }
+            /^Filename:/ && inpkg { print $2; exit }
+          ' Packages)
 
-      - name: Extract deb packages
-        run: |
-          extract_deb() {
-            local arch=$1
-            local deb_file="download/package_${arch}.deb"
-            local ext_dir="extracted_${arch}"
-            if [ ! -f "$deb_file" ]; then
-              echo "Skipping extraction for $arch (deb file not found)"
-              return 0
-            fi
-            mkdir -p "$ext_dir"
-            cd "$ext_dir"
-            ar x "../$deb_file"
-            local data_tar=$(ls data.tar.* 2>/dev/null | head -1)
-            tar xf "$data_tar"
-            cd ..
-          }
-          
-          extract_deb "aarch64"
-          extract_deb "arm"
-          extract_deb "x86_64"
-          extract_deb "i686"
-
-      - name: Repackage into Pojav structure
-        run: |
-          # Find the actual JVM directory for each arch
-          jvm_arm64=$(find extracted_aarch64 -type d -name "java-*-openjdk" | head -1)
-          jvm_arm=$(find extracted_arm -type d -name "java-*-openjdk" | head -1)
-          jvm_x86_64=$(find extracted_x86_64 -type d -name "java-*-openjdk" | head -1)
-          jvm_x86=$(find extracted_i686 -type d -name "java-*-openjdk" | head -1)
-          
-          if [ -z "$jvm_arm64" ]; then
-            echo "ERROR: Could not find base ARM64 JVM directory!"
+          if [ -z "$FILENAME" ]; then
+            echo "ERROR: Package $PKG not found in Termux repository!"
             exit 1
           fi
-          
-          echo "ARM64 JVM path: $jvm_arm64"
-          [ -n "$jvm_arm" ] && echo "ARM JVM path: $jvm_arm" || echo "ARM JVM not found"
-          [ -n "$jvm_x86_64" ] && echo "x86_64 JVM path: $jvm_x86_64" || echo "x86_64 JVM not found"
-          [ -n "$jvm_x86" ] && echo "x86 JVM path: $jvm_x86" || echo "x86 JVM not found"
-          
-          # Create universal directory
-          mkdir -p repack/universal
-          cp -a "$jvm_arm64"/* repack/universal/
-          rm -rf repack/universal/bin
-          find repack/universal -name "*.so" -delete
-          find repack/universal -name "jspawnhelper" -delete
-          
-          cd repack/universal
-          tar -cJf ../../universal.tar.xz .
-          cd ../..
-          
-          # Package architecture specific binaries and libraries
-          repack_bin() {
-            local arch=$1
-            local jvm_path=$2
-            local tar_name=$3
-            
-            if [ -z "$jvm_path" ] || [ ! -d "$jvm_path" ]; then
-              echo "Skipping repackaging for $arch (JVM path not found)"
-              return 0
-            fi
-            
-            mkdir -p "repack/bin-${arch}"
-            if [ -d "$jvm_path/bin" ]; then
-              cp -a "$jvm_path/bin" "repack/bin-${arch}/"
-            fi
-            
-            # Find and copy all shared libraries maintaining directory structure
-            cd "$jvm_path"
-            find lib \( -name "*.so" -o -name "jspawnhelper" \) | while read -r file; do
-              mkdir -p "$GITHUB_WORKSPACE/repack/bin-${arch}/$(dirname "$file")"
-              cp -a "$file" "$GITHUB_WORKSPACE/repack/bin-${arch}/$file"
-            done
-            cd "$GITHUB_WORKSPACE"
-            
-            cd "repack/bin-${arch}"
-            tar -cJf "../../${tar_name}" .
-            cd ../..
-          }
-          
-          repack_bin "aarch64" "$jvm_arm64" "bin-arm64.tar.xz"
-          repack_bin "arm" "$jvm_arm" "bin-arm.tar.xz"
-          repack_bin "x86_64" "$jvm_x86_64" "bin-x86_64.tar.xz"
-          repack_bin "x86" "$jvm_x86" "bin-x86.tar.xz"
-          
-          # Write version
-          echo "${{ github.sha }}" > version
-          
-          # Gather all files that exist to zip
-          zip_files="universal.tar.xz version"
-          for f in bin-arm64.tar.xz bin-arm.tar.xz bin-x86_64.tar.xz bin-x86.tar.xz; do
-            if [ -f "$f" ]; then
-              zip_files="$zip_files $f"
-            fi
-          done
-          
-          # Create zip
-          zip -j -r jre${{ matrix.java }}-pojav.zip $zip_files
 
-      - name: Upload Java ${{ matrix.java }} Pojav artifact
+          echo "Downloading: $REPO/$FILENAME"
+          curl -fsSL "$REPO/$FILENAME" -o package.deb
+          echo "Downloaded $(du -sh package.deb | cut -f1)"
+
+      - name: Extract .deb and repackage as tar.xz
+        run: |
+          mkdir -p extracted
+          cd extracted
+          ar x ../package.deb
+          DATA=$(ls data.tar.* 2>/dev/null | head -1)
+          if [ -z "$DATA" ]; then
+            echo "ERROR: No data.tar.* found in .deb"
+            ls -la
+            exit 1
+          fi
+          echo "Extracting $DATA..."
+          tar xf "$DATA"
+          cd ..
+
+          # Find the jvm directory inside the extracted content
+          JVM_SRC=$(find extracted -type d -name "${{ matrix.jvm_dir }}" 2>/dev/null | head -1)
+          if [ -z "$JVM_SRC" ]; then
+            echo "ERROR: ${{ matrix.jvm_dir }} not found in extracted content"
+            find extracted -type d | head -40
+            exit 1
+          fi
+          echo "Found JVM at: $JVM_SRC"
+
+          # Build output structure matching HostCraft prefix: lib/jvm/java-XX-openjdk/
+          mkdir -p repack/lib/jvm
+          cp -a "$JVM_SRC" "repack/lib/jvm/${{ matrix.jvm_dir }}"
+
+          # Create symlink so this version appears under the requested name
+          if [ -n "${{ matrix.symlink_as }}" ]; then
+            echo "Creating symlink: ${{ matrix.symlink_as }} -> ${{ matrix.jvm_dir }}"
+            ln -sfn "${{ matrix.jvm_dir }}" "repack/lib/jvm/${{ matrix.symlink_as }}"
+          fi
+
+          OUTPUT="jre-${{ matrix.java }}-aarch64.tar.xz"
+          tar -cJf "$OUTPUT" -C repack .
+          echo "Created: $OUTPUT ($(du -sh $OUTPUT | cut -f1))"
+
+      - name: Upload Java ${{ matrix.java }} artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jre${{ matrix.java }}-pojav
-          path: jre${{ matrix.java }}-pojav.zip
+          name: jre-${{ matrix.java }}-aarch64
+          path: jre-${{ matrix.java }}-aarch64.tar.xz
 
   # ─────────────────────────────────────────────
   # Publish all versions as a single GitHub Release
   # ─────────────────────────────────────────────
   publish_release:
     name: "Publish GitHub Release"
-    needs: [pojav, repackage_termux_java]
+    needs: [pojav, repackage_java8_hostcraft, repackage_termux_java]
     runs-on: ubuntu-24.04
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
@@ -293,26 +259,39 @@ jobs:
           tag_name: ${{ steps.get_version.outputs.version }}
           name: "HostCraft OpenJDK ${{ steps.get_version.outputs.version }}"
           body: |
-            ## HostCraft OpenJDK Pojav JRE Builds for Android
+            ## HostCraft OpenJDK Builds for Android
             
-            PojavLauncher compatibility format JRE zip archives for use on Android.
+            Pre-built Java runtimes and JDK/JRE binaries for use with the HostCraft Minecraft server app and PojavLauncher compatibility formats.
+
+            ### HostCraft JREs (aarch64 only, extracts to standard prefix)
+            | Version | File | Source |
+            |---------|------|--------|
+            | Java 8  | `jre-8-aarch64.tar.xz`  | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) source |
+            | Java 11 | `jre-11-aarch64.tar.xz` | Repackaged from Termux `openjdk-17` (symlinked as `java-11-openjdk`) |
+            | Java 17 | `jre-17-aarch64.tar.xz` | Repackaged from Termux `openjdk-17` |
+            | Java 21 | `jre-21-aarch64.tar.xz` | Repackaged from Termux `openjdk-21` |
+            | Java 25 | `jre-25-aarch64.tar.xz` | Repackaged from Termux `openjdk-25` |
+
+            ### Multi-Arch OpenJDK 8 Builds (JDK & JRE)
+            - **JDK 8 Tarballs:** `jdk8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
+            - **JRE 8 Tarballs:** `jre8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
             
-            ### Pojav JRE Zips
-            - **Java 8 JRE:** `jre8-pojav.zip`
-            - **Java 11 JRE:** `jre11-pojav.zip`
-            - **Java 17 JRE:** `jre17-pojav.zip`
-            - **Java 21 JRE:** `jre21-pojav.zip`
-            - **Java 25 JRE:** `jre25-pojav.zip`
-            
-            Each `.zip` contains:
-            - `universal.tar.xz`
-            - `bin-arm.tar.xz`
-            - `bin-arm64.tar.xz`
-            - `bin-x86_64.tar.xz`
-            - `version`
+            ### Pojav Launcher Compatibility JRE (Java 8)
+            - **Asset:** `jre8-pojav.zip` (contains `universal.tar.xz`, `bin-arm.tar.xz`, `bin-arm64.tar.xz`, `bin-x86.tar.xz`, `bin-x86_64.tar.xz`, and `version`)
+
+            ### How HostCraft JRE archives extract
+            Each HostCraft-specific `.tar.xz` extracts into `lib/jvm/java-XX-openjdk/` matching the HostCraft prefix path:
+            ```
+            $PREFIX/lib/jvm/java-8-openjdk/bin/java
+            $PREFIX/lib/jvm/java-11-openjdk/bin/java
+            $PREFIX/lib/jvm/java-17-openjdk/bin/java
+            $PREFIX/lib/jvm/java-21-openjdk/bin/java
+            $PREFIX/lib/jvm/java-25-openjdk/bin/java
+            ```
           draft: false
           prerelease: false
           files: |
+            release-assets/*.tar.xz
             release-assets/*.zip
           token: ${{ secrets.GITHUB_TOKEN }}
 
