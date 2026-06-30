@@ -162,7 +162,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture arm64
           sudo apt-get update
-          apt-get download openjdk-11-jre-headless:arm64 openjdk-11-jdk-headless:arm64
+          apt-get download openjdk-11-jre:arm64 openjdk-11-jre-headless:arm64 openjdk-11-jdk-headless:arm64 openjdk-11-jdk:arm64
 
       - name: Extract and package as tar.xz
         run: |
