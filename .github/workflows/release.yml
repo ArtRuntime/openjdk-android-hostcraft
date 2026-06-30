@@ -50,47 +50,6 @@ jobs:
           name: "jre8-debuginfo-${{matrix.arch}}"
           path: dizout
 
-  # ─────────────────────────────────────────────
-  # Pojav Launcher Repackaging (all archs)
-  # ─────────────────────────────────────────────
-  pojav:
-    name: "Repack JRE for Pojav"
-    needs: build_openjdk8
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Install zip
-        run: sudo apt -y install zip
-      - name: Get jre8-aarch32
-        uses: actions/download-artifact@v4
-        with:
-          name: jre8-aarch32
-          path: pojav
-      - name: Get jre8-aarch64
-        uses: actions/download-artifact@v4
-        with:
-          name: jre8-aarch64
-          path: pojav
-      - name: Get jre8-x86
-        uses: actions/download-artifact@v4
-        with:
-          name: jre8-x86
-          path: pojav
-      - name: Get jre8-x86_64
-        uses: actions/download-artifact@v4
-        with:
-          name: jre8-x86_64
-          path: pojav
-      - name: Repack JRE
-        run: |
-          bash "repackjre.sh" $GITHUB_WORKSPACE/pojav $GITHUB_WORKSPACE/pojav/jre8-pojav
-          zip -j -r $GITHUB_WORKSPACE/jre8-pojav.zip $GITHUB_WORKSPACE/pojav/jre8-pojav/
-      - name: Upload Pojav JRE artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: jre8-pojav
-          path: jre8-pojav.zip
 
   # ─────────────────────────────────────────────
   # Java 8 HostCraft structure (aarch64 repack)
@@ -121,8 +80,8 @@ jobs:
           fi
           mkdir -p temp_extract
           tar xf "$SRC_TAR" -C temp_extract
-          mkdir -p repack/lib/jvm/java-8-openjdk
-          cp -a temp_extract/* repack/lib/jvm/java-8-openjdk/
+          mkdir -p repack/java-8-openjdk
+          cp -a temp_extract/* repack/java-8-openjdk/
           
           if [ "${{ matrix.arch }}" = "aarch32" ]; then
             ARCH_NAME="arm"
@@ -134,7 +93,7 @@ jobs:
           
           OUTPUT="${{ matrix.type }}-8-${ARCH_NAME}.tar.xz"
           tar -cJf "$OUTPUT" -C repack .
-          echo "Repackaged ${{ matrix.type }} 8 (${{ matrix.arch }}) successfully into lib/jvm structure as $OUTPUT."
+          echo "Repackaged ${{ matrix.type }} 8 (${{ matrix.arch }}) successfully as $OUTPUT."
 
       - name: Upload Java 8 ${{ matrix.type }} ${{ matrix.arch }} artifact
         uses: actions/upload-artifact@v4
@@ -213,12 +172,12 @@ jobs:
           fi
           echo "Found JVM at: $JVM_SRC"
 
-          # Build output structure matching HostCraft prefix: lib/jvm/java-XX-openjdk/
-          mkdir -p repack/lib/jvm
-          cp -a "$JVM_SRC" "repack/lib/jvm/${{ matrix.jvm_dir }}"
+          # Build output structure: java-XX-openjdk/
+          mkdir -p repack
+          cp -a "$JVM_SRC" "repack/${{ matrix.jvm_dir }}"
 
           # Strip JDK-specific development tools and source files to make a lightweight JRE
-          JVM_DEST="repack/lib/jvm/${{ matrix.jvm_dir }}"
+          JVM_DEST="repack/${{ matrix.jvm_dir }}"
           rm -rf "$JVM_DEST/lib/src.zip"
           rm -f "$JVM_DEST"/bin/javac \
                 "$JVM_DEST"/bin/javap \
@@ -239,7 +198,7 @@ jobs:
           # Create symlink so this version appears under the requested name
           if [ -n "${{ matrix.symlink_as }}" ]; then
             echo "Creating symlink: ${{ matrix.symlink_as }} -> ${{ matrix.jvm_dir }}"
-            ln -sfn "${{ matrix.jvm_dir }}" "repack/lib/jvm/${{ matrix.symlink_as }}"
+            ln -sfn "${{ matrix.jvm_dir }}" "repack/${{ matrix.symlink_as }}"
           fi
 
           OUTPUT="jre-${{ matrix.java }}-aarch64.tar.xz"
@@ -257,7 +216,7 @@ jobs:
   # ─────────────────────────────────────────────
   publish_release:
     name: "Publish GitHub Release"
-    needs: [pojav, repackage_java8_hostcraft, repackage_termux_java]
+    needs: [repackage_java8_hostcraft, repackage_termux_java]
     runs-on: ubuntu-24.04
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
@@ -283,10 +242,10 @@ jobs:
           body: |
             ## HostCraft OpenJDK Builds for Android
             
-            Pre-built JRE (Java Runtime Environment) binaries for use with the HostCraft Minecraft server app and PojavLauncher compatibility formats.
+            Pre-built JRE (Java Runtime Environment) binaries for use with the HostCraft Minecraft server app.
 
-            ### HostCraft JREs (extracts to standard prefix)
-            Each HostCraft-specific `.tar.xz` extracts directly under `lib/jvm/java-XX-openjdk/` matching the HostCraft prefix path.
+            ### HostCraft JREs
+            Each HostCraft-specific `.tar.xz` extracts directly under a `java-XX-openjdk/` directory.
             
             | Version | Architecture | File | Type | Source / Base |
             |---------|--------------|------|------|---------------|
@@ -300,23 +259,19 @@ jobs:
 
             ### Raw Multi-Arch OpenJDK 8 Builds (Extracts directly at root level)
             - **JRE 8 Tarballs:** `jre8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
-            
-            ### Pojav Launcher Compatibility JRE (Java 8)
-            - **Asset:** `jre8-pojav.zip` (contains `universal.tar.xz`, `bin-arm.tar.xz`, `bin-arm64.tar.xz`, `bin-x86.tar.xz`, `bin-x86_64.tar.xz`, and `version`)
 
             ### How HostCraft JRE archives extract
-            Each HostCraft-specific `.tar.xz` extracts into `lib/jvm/java-XX-openjdk/` matching the HostCraft prefix path:
+            Each HostCraft-specific `.tar.xz` extracts directly into `java-XX-openjdk/`:
             ```
-            $PREFIX/lib/jvm/java-8-openjdk/bin/java
-            $PREFIX/lib/jvm/java-17-openjdk/bin/java
-            $PREFIX/lib/jvm/java-21-openjdk/bin/java
-            $PREFIX/lib/jvm/java-25-openjdk/bin/java
+            java-8-openjdk/bin/java
+            java-17-openjdk/bin/java
+            java-21-openjdk/bin/java
+            java-25-openjdk/bin/java
             ```
           draft: false
           prerelease: false
           files: |
             release-assets/*.tar.xz
-            release-assets/*.zip
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete temporary workflow artifacts
