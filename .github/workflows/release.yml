@@ -106,41 +106,40 @@ jobs:
   # Java 17, 21, 25 – repackaged from Termux
   # ─────────────────────────────────────────────
   repackage_termux_java:
-    name: "Repackage Java ${{ matrix.java }} (aarch64)"
+    name: "Repackage Java ${{ matrix.java }} (${{ matrix.arch }})"
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - java: 17
-            termux_pkg: openjdk-17
-            jvm_dir: java-17-openjdk
-            symlink_as: ""
-          - java: 21
-            termux_pkg: openjdk-21
-            jvm_dir: java-21-openjdk
-            symlink_as: ""
-          - java: 25
-            termux_pkg: openjdk-25
-            jvm_dir: java-25-openjdk
-            symlink_as: ""
+        java: [ 17, 21, 25 ]
+        arch: [ "aarch32", "aarch64", "x86", "x86_64" ]
 
     steps:
-      - name: Download Termux ${{ matrix.termux_pkg }} .deb (aarch64)
+      - name: Download Termux openjdk-${{ matrix.java }} .deb (${{ matrix.arch }})
         run: |
+          if [ "${{ matrix.arch }}" = "aarch32" ]; then
+            TERMUX_ARCH="arm"
+          elif [ "${{ matrix.arch }}" = "aarch64" ]; then
+            TERMUX_ARCH="aarch64"
+          elif [ "${{ matrix.arch }}" = "x86" ]; then
+            TERMUX_ARCH="i686"
+          elif [ "${{ matrix.arch }}" = "x86_64" ]; then
+            TERMUX_ARCH="x86_64"
+          fi
+
           REPO="https://packages.termux.dev/apt/termux-main"
-          PACKAGES_URL="$REPO/dists/stable/main/binary-aarch64/Packages"
-          echo "Fetching Packages index..."
+          PACKAGES_URL="$REPO/dists/stable/main/binary-$TERMUX_ARCH/Packages"
+          echo "Fetching Packages index from $PACKAGES_URL..."
           curl -fsSL "$PACKAGES_URL" -o Packages
 
-          PKG="${{ matrix.termux_pkg }}"
+          PKG="openjdk-${{ matrix.java }}"
           FILENAME=$(awk -v pkg="$PKG" '
             /^Package:/ { inpkg = ($2 == pkg) }
             /^Filename:/ && inpkg { print $2; exit }
           ' Packages)
 
           if [ -z "$FILENAME" ]; then
-            echo "ERROR: Package $PKG not found in Termux repository!"
+            echo "ERROR: Package $PKG not found in Termux repository for $TERMUX_ARCH!"
             exit 1
           fi
 
@@ -163,10 +162,12 @@ jobs:
           tar xf "$DATA"
           cd ..
 
+          JVM_DIR="java-${{ matrix.java }}-openjdk"
+
           # Find the jvm directory inside the extracted content
-          JVM_SRC=$(find extracted -type d -name "${{ matrix.jvm_dir }}" 2>/dev/null | head -1)
+          JVM_SRC=$(find extracted -type d -name "$JVM_DIR" 2>/dev/null | head -1)
           if [ -z "$JVM_SRC" ]; then
-            echo "ERROR: ${{ matrix.jvm_dir }} not found in extracted content"
+            echo "ERROR: $JVM_DIR not found in extracted content"
             find extracted -type d | head -40
             exit 1
           fi
@@ -174,10 +175,10 @@ jobs:
 
           # Build output structure: java-XX-openjdk/
           mkdir -p repack
-          cp -a "$JVM_SRC" "repack/${{ matrix.jvm_dir }}"
+          cp -a "$JVM_SRC" "repack/$JVM_DIR"
 
           # Strip JDK-specific development tools and source files to make a lightweight JRE
-          JVM_DEST="repack/${{ matrix.jvm_dir }}"
+          JVM_DEST="repack/$JVM_DIR"
           rm -rf "$JVM_DEST/lib/src.zip"
           rm -f "$JVM_DEST"/bin/javac \
                 "$JVM_DEST"/bin/javap \
@@ -195,21 +196,21 @@ jobs:
                 "$JVM_DEST"/bin/jar \
                 "$JVM_DEST"/bin/jarsigner
 
-          # Create symlink so this version appears under the requested name
-          if [ -n "${{ matrix.symlink_as }}" ]; then
-            echo "Creating symlink: ${{ matrix.symlink_as }} -> ${{ matrix.jvm_dir }}"
-            ln -sfn "${{ matrix.jvm_dir }}" "repack/${{ matrix.symlink_as }}"
+          if [ "${{ matrix.arch }}" = "aarch32" ]; then
+            ARCH_NAME="arm"
+          else
+            ARCH_NAME="${{ matrix.arch }}"
           fi
 
-          OUTPUT="jre-${{ matrix.java }}-aarch64.tar.xz"
+          OUTPUT="jre-${{ matrix.java }}-$ARCH_NAME.tar.xz"
           tar -cJf "$OUTPUT" -C repack .
           echo "Created: $OUTPUT ($(du -sh $OUTPUT | cut -f1))"
 
-      - name: Upload Java ${{ matrix.java }} artifact
+      - name: Upload Java ${{ matrix.java }} ${{ matrix.arch }} artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jre-${{ matrix.java }}-aarch64
-          path: jre-${{ matrix.java }}-aarch64.tar.xz
+          name: "jre-${{ matrix.java }}-${{ matrix.arch }}"
+          path: "jre-${{ matrix.java }}-*.tar.xz"
 
   # ─────────────────────────────────────────────
   # Publish all versions as a single GitHub Release
@@ -254,8 +255,17 @@ jobs:
             | Java 8  | `x86` | `jre-8-x86.tar.xz` | JRE | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
             | Java 8  | `x86_64` | `jre-8-x86_64.tar.xz` | JRE | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
             | Java 17 | `aarch64` | `jre-17-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-17` |
+            | Java 17 | `arm` (aarch32) | `jre-17-arm.tar.xz` | JRE | Repackaged Termux `openjdk-17` |
+            | Java 17 | `x86` | `jre-17-x86.tar.xz` | JRE | Repackaged Termux `openjdk-17` |
+            | Java 17 | `x86_64` | `jre-17-x86_64.tar.xz` | JRE | Repackaged Termux `openjdk-17` |
             | Java 21 | `aarch64` | `jre-21-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-21` |
+            | Java 21 | `arm` (aarch32) | `jre-21-arm.tar.xz` | JRE | Repackaged Termux `openjdk-21` |
+            | Java 21 | `x86` | `jre-21-x86.tar.xz` | JRE | Repackaged Termux `openjdk-21` |
+            | Java 21 | `x86_64` | `jre-21-x86_64.tar.xz` | JRE | Repackaged Termux `openjdk-21` |
             | Java 25 | `aarch64` | `jre-25-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
+            | Java 25 | `arm` (aarch32) | `jre-25-arm.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
+            | Java 25 | `x86` | `jre-25-x86.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
+            | Java 25 | `x86_64` | `jre-25-x86_64.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
 
             ### Raw Multi-Arch OpenJDK 8 Builds (Extracts directly at root level)
             - **JRE 8 Tarballs:** `jre8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
