@@ -38,11 +38,6 @@ jobs:
           sudo apt -y install autoconf python3 python-is-python3 unzip zip systemtap-sdt-dev gcc-multilib g++-multilib libxtst-dev libasound2-dev libelf-dev libfontconfig1-dev libx11-dev libxrender-dev libxtst-dev libxt-dev
       - name: Build with CI build script
         run: bash "ci_build_arch_${{matrix.arch}}.sh"
-      - name: Upload JDK build output
-        uses: actions/upload-artifact@v4
-        with:
-          name: "jdk8-${{matrix.arch}}"
-          path: jdk8-*.tar.xz
 
       - name: Setup tmate session if failed
         if: ${{ failure() }}
@@ -111,7 +106,7 @@ jobs:
     strategy:
       matrix:
         arch: [ "aarch32", "aarch64", "x86", "x86_64" ]
-        type: [ "jre", "jdk" ]
+        type: [ "jre" ]
       fail-fast: false
     steps:
       - name: Get compiled ${{ matrix.type }}8-${{ matrix.arch }}
@@ -226,6 +221,25 @@ jobs:
           mkdir -p repack/lib/jvm
           cp -a "$JVM_SRC" "repack/lib/jvm/${{ matrix.jvm_dir }}"
 
+          # Strip JDK-specific development tools and source files to make a lightweight JRE
+          JVM_DEST="repack/lib/jvm/${{ matrix.jvm_dir }}"
+          rm -rf "$JVM_DEST/lib/src.zip"
+          rm -f "$JVM_DEST"/bin/javac \
+                "$JVM_DEST"/bin/javap \
+                "$JVM_DEST"/bin/javadoc \
+                "$JVM_DEST"/bin/jshell \
+                "$JVM_DEST"/bin/jlink \
+                "$JVM_DEST"/bin/jmod \
+                "$JVM_DEST"/bin/jdb \
+                "$JVM_DEST"/bin/jcmd \
+                "$JVM_DEST"/bin/jinfo \
+                "$JVM_DEST"/bin/jmap \
+                "$JVM_DEST"/bin/jps \
+                "$JVM_DEST"/bin/jstack \
+                "$JVM_DEST"/bin/jstat \
+                "$JVM_DEST"/bin/jar \
+                "$JVM_DEST"/bin/jarsigner
+
           # Create symlink so this version appears under the requested name
           if [ -n "${{ matrix.symlink_as }}" ]; then
             echo "Creating symlink: ${{ matrix.symlink_as }} -> ${{ matrix.jvm_dir }}"
@@ -273,9 +287,9 @@ jobs:
           body: |
             ## HostCraft OpenJDK Builds for Android
             
-            Pre-built Java runtimes and JDK/JRE binaries for use with the HostCraft Minecraft server app and PojavLauncher compatibility formats.
+            Pre-built JRE (Java Runtime Environment) binaries for use with the HostCraft Minecraft server app and PojavLauncher compatibility formats.
 
-            ### HostCraft JREs / JDKs (extracts to standard prefix)
+            ### HostCraft JREs (extracts to standard prefix)
             Each HostCraft-specific `.tar.xz` extracts directly under `lib/jvm/java-XX-openjdk/` matching the HostCraft prefix path.
             
             | Version | Architecture | File | Type | Source / Base |
@@ -284,16 +298,11 @@ jobs:
             | Java 8  | `arm` (aarch32) | `jre-8-arm.tar.xz` | JRE | Built from [openjdk/aarch32-port-jdk8u](https://github.com/openjdk/aarch32-port-jdk8u) |
             | Java 8  | `x86` | `jre-8-x86.tar.xz` | JRE | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
             | Java 8  | `x86_64` | `jre-8-x86_64.tar.xz` | JRE | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
-            | Java 8  | `aarch64` | `jdk-8-aarch64.tar.xz` | JDK | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
-            | Java 8  | `arm` (aarch32) | `jdk-8-arm.tar.xz` | JDK | Built from [openjdk/aarch32-port-jdk8u](https://github.com/openjdk/aarch32-port-jdk8u) |
-            | Java 8  | `x86` | `jdk-8-x86.tar.xz` | JDK | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
-            | Java 8  | `x86_64` | `jdk-8-x86_64.tar.xz` | JDK | Built from [openjdk/jdk8u](https://github.com/openjdk/jdk8u) |
             | Java 17 | `aarch64` | `jre-17-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-17` |
             | Java 21 | `aarch64` | `jre-21-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-21` |
             | Java 25 | `aarch64` | `jre-25-aarch64.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
 
             ### Raw Multi-Arch OpenJDK 8 Builds (Extracts directly at root level)
-            - **JDK 8 Tarballs:** `jdk8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
             - **JRE 8 Tarballs:** `jre8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
             
             ### Pojav Launcher Compatibility JRE (Java 8)
