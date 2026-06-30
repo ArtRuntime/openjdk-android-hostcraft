@@ -1,13 +1,10 @@
 name: Build & Release OpenJDK for Android (HostCraft)
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 1 */2 *'
+    - cron: '0 0 */8 * *'
 
 permissions:
   contents: write
@@ -269,8 +266,6 @@ jobs:
             | Java 25 | `arm` (aarch32) | `jre-25-arm.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
             | Java 25 | `x86_64` | `jre-25-x86_64.tar.xz` | JRE | Repackaged Termux `openjdk-25` |
 
-            ### Raw Multi-Arch OpenJDK 8 Builds (Extracts directly at root level)
-            - **JRE 8 Tarballs:** `jre8-*.tar.xz` (`aarch32`, `aarch64`, `x86`, `x86_64`)
 
             ### How HostCraft JRE archives extract
             Each HostCraft-specific `.tar.xz` extracts directly into `java-XX-openjdk/`:
@@ -283,7 +278,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            release-assets/*.tar.xz
+            release-assets/jre-*.tar.xz
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete temporary workflow artifacts
